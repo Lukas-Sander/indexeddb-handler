@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IndexedDB-Handler Demo</title>
+  <script type="text/javascript" src="Database.js" defer></script>
+</head>
+<body>
+
+<h1>IndexedDB Demo</h1>
+
+<form id="dbForm">
+  <label>
+    Store Name:
+    <select id="storeName">
+      <option value="users">Users</option>
+      <option value="products">Products</option>
+      <option value="orders">Orders</option>
+    </select>
+  </label>
+  <label>
+    Item ID:
+    <input type="text" id="itemId">
+  </label>
+  <label>
+    Item Data:
+    <input type="text" id="itemData">
+  </label>
+  <button type="button" id="addItem">Add Item</button>
+  <button type="button" id="getAllItems">Get All Items</button>
+  <button type="button" id="deleteItem">Delete Item</button>
+</form>
+
+<h2>Database Output:</h2>
+<pre id="output"></pre>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const db = new Database("DemoDB", {
+      users: { useMemoryCache: true },
+      products: { useMemoryCache: false },
+      orders: { useMemoryCache: true }
+    });
+
+    function displayOutput(data) {
+      document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+    }
+
+    document.getElementById("addItem").addEventListener("click", async () => {
+      const store = document.getElementById("storeName").value;
+      const id = document.getElementById("itemId").value;
+      const data = { id, value: document.getElementById("itemData").value };
+
+      db.scheduleSave(store, id, data);
+      displayOutput(`Added: ${JSON.stringify(data)}`);
+    });
+
+    document.getElementById("getAllItems").addEventListener("click", async () => {
+      const store = document.getElementById("storeName").value;
+      const items = await db.getAll(store);
+      displayOutput(items);
+    });
+
+    document.getElementById("deleteItem").addEventListener("click", async () => {
+      const store = document.getElementById("storeName").value;
+      const id = document.getElementById("itemId").value;
+
+      await db.delete(store, id);
+      displayOutput(`Deleted item with ID: ${id}`);
+    });
+  });
+</script>
+
+</body>
+</html>
