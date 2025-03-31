@@ -57,6 +57,7 @@
 
     document.getElementById("getAllItems").addEventListener("click", async () => {
       const store = document.getElementById("storeName").value;
+      console.debug(store);
       const items = await db.getAll(store);
       displayOutput(items);
     });

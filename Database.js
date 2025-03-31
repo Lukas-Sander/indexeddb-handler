@@ -86,28 +86,51 @@ class Database {
     }
 
     async #loadMemoryCache() {
+        console.debug("Loading Memory Cache");
         const me = this;
-        for (const store of Object.keys(me.#stores)) {
+
+        await Promise.all(Object.keys(me.#stores).map(async (store) => {
             if (me.#stores[store].useMemoryCache !== false) {
                 me.#memoryCache[store] = {};
-                const data = await me.getAll(store);
+
+                const tx = me.#db.transaction(store, "readonly");
+                const storeObj = tx.objectStore(store);
+                const data = await new Promise((resolve, reject) => {
+                    const request = storeObj.getAll();
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = (event) => reject(event.target.error);
+                });
+
                 for (const item of data) {
                     me.#memoryCache[store][item.id] = item;
                 }
             }
-        }
+        }));
+        console.debug(me.#memoryCache);
     }
+
 
     async #saveStore(store) {
         const me = this;
         const tx = me.#db.transaction(store, "readwrite");
         const storeObj = tx.objectStore(store);
 
-        if (me.#stores[store]?.useMemoryCache === false) {
-            const data = await me.getAll(store);
-            data.forEach((item) => storeObj.put(item));
-        } else {
+        if (me.#stores[store]?.useMemoryCache === true) {
+            console.debug('saving to memoryCache');
             Object.values(me.#memoryCache[store]).forEach((item) => storeObj.put(item));
+        }
+    }
+
+
+    async #saveDirect(store, data) {
+        console.debug(store, data);
+        const me = this;
+        const tx = me.#db.transaction(store, "readwrite");
+        const storeObj = tx.objectStore(store);
+
+        if (me.#stores[store]?.useMemoryCache === false) {
+            console.debug('saving directly to indexedDB');
+            storeObj.put(data);
         }
     }
 
@@ -122,6 +145,7 @@ class Database {
     // ---------------------- Public Methods ----------------------
 
     async getAll(store) {
+        console.debug('get all from store ' + store);
         const me = this;
         if (me.#stores[store]?.useMemoryCache === false) {
             return new Promise((resolve) => {
@@ -141,10 +165,14 @@ class Database {
         const me = this;
         if (me.#stores[store]?.useMemoryCache !== false) {
             me.#memoryCache[store][id] = data;
-        }
 
-        clearTimeout(me.#saveTimeouts[store]);
-        me.#saveTimeouts[store] = setTimeout(() => me.#saveStore(store), 10000);
+            clearTimeout(me.#saveTimeouts[store]);
+            me.#saveTimeouts[store] = setTimeout(() => me.#saveStore(store), 10000);
+        }
+        else {
+            me.#saveDirect(store, data);
+            me.#saveStore(store);
+        }
     }
 
     async delete(store, id) {
