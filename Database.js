@@ -7,15 +7,17 @@ class Database {
     #db; // Actual database instance
     #memoryCache; // Cache array for quicker access of table data
     #saveTimeouts; // Per-store timeouts for saving data into IndexedDB
+    #isStrict;
 
-    constructor(name, stores) {
+    constructor(name, stores, isPersistent = true, isStrict = true) {
         const me = this;
         me.#name = name;
         me.#stores = stores;
         me.#db = null;
         me.#memoryCache = {};
         me.#saveTimeouts = {};
-        me.#init();
+        me.#isStrict = isStrict;
+        me.#init(isPersistent);
 
         // Auto-save on page close or when hidden
         window.addEventListener("beforeunload", () => me.#saveAllStores());
@@ -28,7 +30,7 @@ class Database {
 
     // ---------------------- Private Methods ----------------------
 
-    async #init() {
+    async #init(isPersistent) {
         const me = this;
         return new Promise((resolve, reject) => {
             let upgradeNeeded = false;
@@ -69,6 +71,10 @@ class Database {
                     upgradeRequest.onsuccess = () => {
                         me.#db = upgradeRequest.result;
                         me.#loadMemoryCache();
+
+                        if(isPersistent) {
+                            document.addEventListener("click", me.requestPersistentStorage, { once: true });
+                        }
                         resolve();
                     };
 
@@ -77,12 +83,36 @@ class Database {
                     // No upgrade needed, use the existing connection
                     me.#db = db;
                     me.#loadMemoryCache();
+
+                    if(isPersistent) {
+                        document.addEventListener("click", me.requestPersistentStorage, { once: true });
+                    }
                     resolve();
                 }
             };
 
             request.onerror = (event) => reject(event.target.error);
         });
+    }
+
+    async requestPersistentStorage() {
+        const me = this;
+        if (navigator.storage && navigator.storage.persist) {
+            const isPersistent = await navigator.storage.persisted();
+            if (isPersistent) {
+                console.debug("Persistent storage already granted.");
+                return;
+            }
+
+            console.debug("Requesting persistent storage...");
+            const granted = await navigator.storage.persist();
+            console.debug(`Persistent storage granted: ${granted}`);
+        } else {
+            console.warn("Persistent storage API not supported.");
+        }
+
+        // Remove listener after the first attempt
+        document.removeEventListener("click", me.requestPersistentStorage);
     }
 
     async #loadMemoryCache() {
@@ -93,7 +123,7 @@ class Database {
             if (me.#stores[store].useMemoryCache !== false) {
                 me.#memoryCache[store] = {};
 
-                const tx = me.#db.transaction(store, "readonly");
+                const tx = me.#db.transaction(store, "readonly", {durabiliy: me.#isStrict ? 'strict' : 'relaxed'});
                 const storeObj = tx.objectStore(store);
                 const data = await new Promise((resolve, reject) => {
                     const request = storeObj.getAll();
@@ -112,7 +142,7 @@ class Database {
 
     async #saveStore(store) {
         const me = this;
-        const tx = me.#db.transaction(store, "readwrite");
+        const tx = me.#db.transaction(store, "readwrite", {durabiliy: me.#isStrict ? 'strict' : 'relaxed'});
         const storeObj = tx.objectStore(store);
 
         if (me.#stores[store]?.useMemoryCache === true) {
@@ -125,7 +155,7 @@ class Database {
     async #saveDirect(store, data) {
         console.debug(store, data);
         const me = this;
-        const tx = me.#db.transaction(store, "readwrite");
+        const tx = me.#db.transaction(store, "readwrite", {durabiliy: me.#isStrict ? 'strict' : 'relaxed'});
         const storeObj = tx.objectStore(store);
 
         if (me.#stores[store]?.useMemoryCache === false) {
@@ -149,7 +179,7 @@ class Database {
         const me = this;
         if (me.#stores[store]?.useMemoryCache === false) {
             return new Promise((resolve) => {
-                const tx = me.#db.transaction(store, "readonly");
+                const tx = me.#db.transaction(store, "readonly", {durabiliy: 'relaxed'});   //always use relaxed reading of data here for faster execution
                 const storeObj = tx.objectStore(store);
                 const request = storeObj.getAll();
 
@@ -180,13 +210,14 @@ class Database {
         if (me.#stores[store]?.useMemoryCache !== false) {
             delete me.#memoryCache[store][id];
         }
-        const tx = me.#db.transaction(store, "readwrite");
+        const tx = me.#db.transaction(store, "readwrite", {durabiliy: me.#isStrict ? 'strict' : 'relaxed'});
         tx.objectStore(store).delete(id);
     }
 
     query(store) {
         return new QueryBuilder(this, store);
     }
+
 }
 
 // ---------------------- QueryBuilder (Internal) ----------------------
